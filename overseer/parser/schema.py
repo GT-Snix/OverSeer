@@ -15,3 +15,5 @@ class Advisory(BaseModel):
     mitigation: str = "N/A - Pending Vendor Patch"
     published_date: datetime
     source_url: HttpUrl
+    needs_review: bool = False
+    """True when no CVSS score could be found and severity is a manual-review placeholder."""
