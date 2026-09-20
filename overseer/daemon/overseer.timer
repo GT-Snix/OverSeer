@@ -1,0 +1,27 @@
+# Template systemd timer that triggers overseer.service on an interval.
+#
+# Install:
+#   1. Copy this file to /etc/systemd/system/overseer.timer
+#      (alongside an installed, placeholder-filled overseer.service)
+#   2. sudo systemctl daemon-reload
+#   3. sudo systemctl enable --now overseer.timer
+#
+# See ../README.md for full setup instructions (systemd and crontab),
+# including an explicit note on why this interval IS the detection
+# latency for new advisories.
+
+[Unit]
+Description=Run overseer.service on a schedule
+
+[Timer]
+# First run 5 minutes after boot, then every 30 minutes thereafter.
+# Adjust OnUnitActiveSec= to change the polling interval.
+OnBootSec=5min
+OnUnitActiveSec=30min
+
+# If the machine was off/asleep when a run was due, run once on the next
+# boot instead of silently skipping it.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,36 @@
+# Template systemd service unit for running `overseer run` once per
+# activation. Paired with overseer.timer for scheduling -- do not
+# `systemctl enable` this unit directly, enable the timer instead.
+#
+# Install:
+#   1. Replace every __PLACEHOLDER__ below for your machine.
+#   2. Copy this file to /etc/systemd/system/overseer.service
+#   3. sudo systemctl daemon-reload
+#
+# See ../README.md for full setup instructions (systemd and crontab).
+
+[Unit]
+Description=OverSeer advisory collection run
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=__OVERSEER_USER__
+Group=__OVERSEER_GROUP__
+WorkingDirectory=__OVERSEER_INSTALL_DIR__
+
+# Holds CISCO_CLIENT_ID / CISCO_CLIENT_SECRET and any other secrets, kept
+# out of this unit file (which is often world-readable). The leading "-"
+# makes the file optional so a missing file doesn't block the run.
+EnvironmentFile=-__OVERSEER_INSTALL_DIR__/overseer.env
+
+ExecStart=__OVERSEER_INSTALL_DIR__/.venv/bin/overseer run
+
+# Basic hardening. ProtectSystem=strict makes the filesystem read-only
+# outside ReadWritePaths, which OverSeer needs for its sqlite db and
+# reports/ output.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=__OVERSEER_INSTALL_DIR__
