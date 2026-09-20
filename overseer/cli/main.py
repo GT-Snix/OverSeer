@@ -4,6 +4,7 @@ from rich.table import Table
 
 from overseer.collector.base import SourceAdapter
 from overseer.collector.cisa_ics import CISAICSAdapter
+from overseer.collector.cisco import CiscoAdapter
 from overseer.notifier.report import generate_report
 from overseer.parser.normalize import normalize
 from overseer.storage import db
@@ -11,7 +12,7 @@ from overseer.storage import db
 app = typer.Typer(name="overseer", help="OverSeer: advisory collection, normalization, and notification tool.")
 console = Console()
 
-ADAPTERS: list[SourceAdapter] = [CISAICSAdapter()]
+ADAPTERS: list[SourceAdapter] = [CISAICSAdapter(), CiscoAdapter()]
 DEFAULT_REPORTS_DIR = "reports/"
 
 
@@ -31,7 +32,11 @@ def _run_pipeline(adapters: list[SourceAdapter], output_dir: str = DEFAULT_REPOR
     }
 
     for adapter in adapters:
-        raw_advisories = adapter.fetch()
+        try:
+            raw_advisories = adapter.fetch()
+        except Exception as exc:
+            console.print(f"[red]{adapter.__class__.__name__} fetch failed, skipping this source: {exc}[/red]")
+            continue
         counts["total_fetched"] += len(raw_advisories)
 
         for raw in raw_advisories:
