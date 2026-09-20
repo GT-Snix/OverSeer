@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
 from bs4 import BeautifulSoup
-from cvss import CVSS3
+from cvss import CVSS3, CVSS4
 
 from overseer.collector.base import RawAdvisory
 from overseer.parser.schema import Advisory
@@ -13,11 +13,15 @@ UNSCORED_SEVERITY = "UNSCORED - Manual Review"
 
 ICSA_ID_RE = re.compile(r"\bICSA-\d{2}-\d{3}-\d{2}\b", re.IGNORECASE)
 
-# A full vector string, e.g. "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H".
-CVSS_FULL_VECTOR_RE = re.compile(r"CVSS:3\.[01]/[A-Za-z:/]+[A-Za-z]")
+# Full vector strings, e.g. "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+# and "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N".
+# v3.x and v4.0 use different metric groups (and different score classes
+# below), so they're matched and scored separately.
+CVSS_V3_VECTOR_RE = re.compile(r"CVSS:3\.[01]/[A-Za-z:/]+[A-Za-z]")
+CVSS_V4_VECTOR_RE = re.compile(r"CVSS:4\.0/[A-Za-z:/]+[A-Za-z0-9]")
 
-# CISA prose often states the metrics without the "CVSS:3.x/" header, e.g.
-# "the CVSS vector string is (AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H)".
+# CISA prose often states the v3 metrics without the "CVSS:3.x/" header,
+# e.g. "the CVSS vector string is (AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H)".
 CVSS_BARE_METRICS_RE = re.compile(
     r"AV:[NAL]/AC:[LH]/PR:[NLH]/UI:[NR]/S:[UC]/C:[NLH]/I:[NLH]/A:[NLH]"
 )
@@ -35,9 +39,55 @@ def _strip_html(text: str) -> str:
 
 def _score_from_vector(vector: str) -> float | None:
     try:
+        if vector.startswith("CVSS:4.0"):
+            return CVSS4(vector).base_score
         return CVSS3(vector).base_score
     except Exception:
         return None
+
+
+def _all_text_scores(text: str) -> list[float]:
+    """All CVSS scores found in free text, across every vector present.
+
+    An advisory can bundle several CVEs, each with its own vector (and
+    each vector can appear in both v3.x and v4.0 form for the same CVE).
+    Rather than taking the first match in document order -- which
+    silently picks an arbitrary CVE's score -- this collects every full
+    vector match (v3.x and v4.0) and lets the caller take the max, so a
+    bundled advisory is scored by its worst vulnerability. Bare-metrics
+    and prose fallbacks only kick in when no full vector was found at
+    all, since those are less reliable than a real vector string.
+    """
+    scores: list[float] = []
+
+    for match in CVSS_V3_VECTOR_RE.finditer(text):
+        score = _score_from_vector(match.group(0))
+        if score is not None:
+            scores.append(score)
+
+    for match in CVSS_V4_VECTOR_RE.finditer(text):
+        score = _score_from_vector(match.group(0))
+        if score is not None:
+            scores.append(score)
+
+    if scores:
+        return scores
+
+    for match in CVSS_BARE_METRICS_RE.finditer(text):
+        score = _score_from_vector(f"CVSS:3.1/{match.group(0)}")
+        if score is not None:
+            scores.append(score)
+
+    if scores:
+        return scores
+
+    for match in CVSS_SCORE_PROSE_RE.finditer(text):
+        try:
+            scores.append(float(match.group(1)))
+        except ValueError:
+            pass
+
+    return scores
 
 
 def _extract_cvss_score(raw: RawAdvisory, clean_summary: str) -> float | None:
@@ -54,24 +104,9 @@ def _extract_cvss_score(raw: RawAdvisory, clean_summary: str) -> float | None:
         if score is not None:
             return score
 
-    full_vector_match = CVSS_FULL_VECTOR_RE.search(clean_summary)
-    if full_vector_match:
-        score = _score_from_vector(full_vector_match.group(0))
-        if score is not None:
-            return score
-
-    bare_metrics_match = CVSS_BARE_METRICS_RE.search(clean_summary)
-    if bare_metrics_match:
-        score = _score_from_vector(f"CVSS:3.1/{bare_metrics_match.group(0)}")
-        if score is not None:
-            return score
-
-    score_match = CVSS_SCORE_PROSE_RE.search(clean_summary)
-    if score_match:
-        try:
-            return float(score_match.group(1))
-        except ValueError:
-            pass
+    scores = _all_text_scores(clean_summary)
+    if scores:
+        return max(scores)
 
     return None
 

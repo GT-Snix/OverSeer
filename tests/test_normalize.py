@@ -34,6 +34,55 @@ LOW_SEVERITY_SUMMARY = (
     "(AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N).</p>"
 )
 
+# Reconstructed from the real CISA advisory "Digital Watchdog VMAX DVR and
+# NVR Product Lineups" (icsa-26-258-01), pulled from the live feed: 6 CVEs,
+# each scored in both CVSS v3.1 and v4.0. Real CVE IDs and real vector
+# strings; only the connective prose is representative CISA phrasing.
+# v3.1 base scores: 6.5, 9.6, 8.8, 8.8, 9.6, 6.8 (max 9.6)
+# v4.0 base scores: 7.1, 9.4, 8.7, 8.7, 9.4, 7.6 (max 9.4)
+# Overall max across both versions: 9.6 -> Critical.
+DIGITAL_WATCHDOG_MULTI_CVE_SUMMARY = (
+    "<p>1. EXECUTIVE SUMMARY</p>"
+    "<p>CISA is aware of multiple vulnerabilities affecting Digital Watchdog "
+    "VMAX DVR and NVR Product Lineups.</p>"
+    "<p>2. RISK EVALUATION</p>"
+    "<p>CVE-2026-66372 CWE-306: Missing Authentication for Critical Function. "
+    "Metrics CVSS Version Base Score Base Severity Vector String "
+    "3.1 6.5 MEDIUM CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N "
+    "4.0 7.1 HIGH CVSS:4.0/AV:A/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N</p>"
+    "<p>CVE-2026-66887 CWE-78: OS Command Injection. "
+    "Metrics CVSS Version Base Score Base Severity Vector String "
+    "3.1 9.6 CRITICAL CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H "
+    "4.0 9.4 CRITICAL CVSS:4.0/AV:A/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H</p>"
+    "<p>CVE-2026-66890 CWE-798: Use of Hard-coded Credentials. "
+    "Metrics CVSS Version Base Score Base Severity Vector String "
+    "3.1 8.8 HIGH CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H "
+    "4.0 8.7 HIGH CVSS:4.0/AV:A/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N</p>"
+    "<p>CVE-2026-68070 CWE-79: Cross-site Scripting. "
+    "Metrics CVSS Version Base Score Base Severity Vector String "
+    "3.1 8.8 HIGH CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H "
+    "4.0 8.7 HIGH CVSS:4.0/AV:A/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N</p>"
+    "<p>CVE-2026-68950 CWE-89: SQL Injection. "
+    "Metrics CVSS Version Base Score Base Severity Vector String "
+    "3.1 9.6 CRITICAL CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H "
+    "4.0 9.4 CRITICAL CVSS:4.0/AV:A/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H</p>"
+    "<p>CVE-2026-68953 CWE-287: Improper Authentication. "
+    "Metrics CVSS Version Base Score Base Severity Vector String "
+    "3.1 6.8 MEDIUM CVSS:3.1/AV:A/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N "
+    "4.0 7.6 HIGH CVSS:4.0/AV:A/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N</p>"
+)
+
+# The earlier text-example advisory that has one CVE scored in both v3.1
+# (MEDIUM) and v4.0 (HIGH) -- confirms the v4.0 score wins the max.
+V3_MEDIUM_V4_HIGH_SUMMARY = (
+    "<p>1. EXECUTIVE SUMMARY</p>"
+    "<p>2. RISK EVALUATION</p>"
+    "<p>Successful exploitation could allow an attacker limited access to affected "
+    "functionality. Metrics CVSS Version Base Score Base Severity Vector String "
+    "3.1 6.5 MEDIUM CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N "
+    "4.0 7.1 HIGH CVSS:4.0/AV:A/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N</p>"
+)
+
 NO_CVSS_SUMMARY = (
     "<p>1. EXECUTIVE SUMMARY</p>"
     "<ul>"
@@ -96,6 +145,41 @@ def test_missing_cvss_is_routed_to_manual_review():
     assert advisory.severity == "UNSCORED - Manual Review"
     assert advisory.needs_review is True
     assert advisory.unique_id == "ICSA-26-261-09"
+
+
+def test_multi_cve_bundled_advisory_scored_by_max_not_first_vector():
+    raw = make_raw(
+        "ICSA-26-258-01",
+        "Digital Watchdog VMAX DVR and NVR Product Lineups",
+        DIGITAL_WATCHDOG_MULTI_CVE_SUMMARY,
+    )
+
+    advisory = normalize(raw)
+
+    # Before the fix, this was dropped: the FIRST vector found (CVE-2026-66372,
+    # v3.1) scores 6.5, below the 7.0 threshold. The advisory actually
+    # bundles a 9.6 CRITICAL CVE (CVE-2026-66887 / CVE-2026-68950).
+    assert advisory is not None
+    assert advisory.severity == "Critical"
+    assert advisory.needs_review is False
+
+
+def test_v4_vector_score_wins_over_v3_for_same_cve():
+    raw = make_raw(
+        "ICSA-26-999-01",
+        "Example Vendor Example Product",
+        V3_MEDIUM_V4_HIGH_SUMMARY,
+    )
+
+    advisory = normalize(raw)
+
+    # v3.1 alone (6.5, MEDIUM) would be filtered out. The advisory also
+    # states a v4.0 score of 7.1 (HIGH) for the same CVE, which must be
+    # picked up and win the max -- CVSS:4.0/ vectors were previously
+    # invisible to the extractor entirely.
+    assert advisory is not None
+    assert advisory.severity == "High"
+    assert advisory.needs_review is False
 
 
 def test_unique_id_extracted_from_link_when_title_and_id_lack_it():
