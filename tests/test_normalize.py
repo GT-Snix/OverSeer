@@ -96,3 +96,24 @@ def test_missing_cvss_is_routed_to_manual_review():
     assert advisory.severity == "UNSCORED - Manual Review"
     assert advisory.needs_review is True
     assert advisory.unique_id == "ICSA-26-261-09"
+
+
+def test_unique_id_extracted_from_link_when_title_and_id_lack_it():
+    # Matches the real CISA ICS feed shape: title has no ID at all, the
+    # `id`/guid is a bare relative Drupal path ("/node/25507"), and the
+    # ID only appears lowercase inside the link URL.
+    raw = RawAdvisory(
+        source_name="CISA ICS",
+        raw_id="/node/25507",
+        raw_title="Schneider Electric PowerChute Serial Shutdown",
+        raw_summary=HIGH_SEVERITY_SUMMARY,
+        raw_published="Thu, 17 Sep 2026 12:00:00 +0000",
+        raw_link="https://www.cisa.gov/news-events/ics-advisories/icsa-26-260-07",
+        extra={},
+    )
+
+    advisory = normalize(raw)
+
+    assert advisory is not None
+    assert advisory.unique_id == "ICSA-26-260-07"
+    assert "/" not in advisory.unique_id

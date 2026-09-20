@@ -11,7 +11,7 @@ from overseer.parser.schema import Advisory
 HIGH_SEVERITY_THRESHOLD = 7.0
 UNSCORED_SEVERITY = "UNSCORED - Manual Review"
 
-ICSA_ID_RE = re.compile(r"\bICSA-\d{2}-\d{3}-\d{2}\b")
+ICSA_ID_RE = re.compile(r"\bICSA-\d{2}-\d{3}-\d{2}\b", re.IGNORECASE)
 
 # A full vector string, e.g. "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H".
 CVSS_FULL_VECTOR_RE = re.compile(r"CVSS:3\.[01]/[A-Za-z:/]+[A-Za-z]")
@@ -87,11 +87,21 @@ def _severity_label(score: float) -> str:
 
 
 def _extract_unique_id(raw: RawAdvisory) -> str:
-    for candidate in (raw.raw_title, raw.raw_id, raw.raw_link):
+    # The ID often isn't in the title at all in current CISA feeds -- it
+    # only shows up (lowercase) as the last path segment of the link, e.g.
+    # link=".../icsa-26-260-07" while id="/node/25507" and the title is
+    # just the vendor/product name. Check link before the raw id/guid,
+    # which can be a bare relative Drupal path unsafe to use as a filename.
+    for candidate in (raw.raw_title, raw.raw_link, raw.raw_id):
         match = ICSA_ID_RE.search(candidate or "")
         if match:
-            return match.group(0)
-    return raw.raw_id or raw.raw_link
+            return match.group(0).upper()
+
+    # No canonical ICSA-##-###-## found anywhere: fall back to a
+    # filesystem-safe slug instead of a raw id/link that may contain "/".
+    fallback = raw.raw_link or raw.raw_id or raw.raw_title or "UNKNOWN"
+    slug = fallback.rstrip("/").rsplit("/", 1)[-1]
+    return slug or "UNKNOWN"
 
 
 def _split_oem_and_product(raw: RawAdvisory, unique_id: str) -> tuple[str, str]:
